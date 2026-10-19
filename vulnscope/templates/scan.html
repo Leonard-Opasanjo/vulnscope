@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Scan {{ scan.id }} · {{ scan.url }} · VulnScope{% endblock %}
+{% block head %}{% if scan.status in ("queued", "running") %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block body %}
+<p class="muted"><a href="/">Targets</a> › <a href="/targets/{{ scan.target_id }}">{{ scan.url }}</a> › scan {{ scan.id }}</p>
+<h1 style="display:flex;align-items:center;gap:1rem">
+  {% if scan.grade %}<span class="grade {{ scan.grade }}">{{ scan.grade }}</span>{% endif %}
+  <span>{{ scan.url }}</span>
+</h1>
+
+{% if scan.status in ("queued", "running") %}
+<div class="notice">Scan {{ scan.status }}… this page refreshes every few seconds.</div>
+{% elif scan.status == "failed" %}
+<div class="notice">Scan failed: <span class="mono">{{ scan.error }}</span></div>
+{% else %}
+<div class="card">
+  <dl class="kv">
+    <dt>Score</dt><dd><strong>{{ scan.score }}</strong> / 100 · grade {{ scan.grade }}</dd>
+    <dt>Findings</dt><dd class="counts">{% for s in severities %}{% if scan.counts[s] %}<span><span class="sev {{ s }}">{{ s }}</span> {{ scan.counts[s] }}</span>{% endif %}{% endfor %}{% if not scan.findings %}<span class="muted">none</span>{% endif %}</dd>
+    <dt>Open</dt><dd>{{ scan.open }} of {{ scan.findings|length }} findings still open or in progress</dd>
+    <dt>Final URL</dt><dd class="mono">{{ scan.final_url }} <span class="muted">(HTTP {{ scan.http_status }}{% if scan.title %}, "{{ scan.title }}"{% endif %})</span></dd>
+    {% if scan.server %}<dt>Server</dt><dd class="mono">{{ scan.server }}</dd>{% endif %}
+    {% if scan.tls and scan.tls.protocol %}<dt>TLS</dt><dd class="mono">{{ scan.tls.protocol }} {{ scan.tls.cipher }} · {{ scan.tls.key_type }} {{ scan.tls.key_bits }} · expires {{ (scan.tls.not_after or "")[:10] }} · {{ "trusted" if scan.tls.trusted else "NOT trusted" }}</dd>{% endif %}
+    <dt>Scanned</dt><dd>{{ scan.finished_at|replace("T", " ") }} · {{ scan.requests }} requests</dd>
+    <dt>Export</dt><dd><a href="/scans/{{ scan.id }}/report.html">HTML report</a> · <a href="/scans/{{ scan.id }}/report.json">JSON</a>{% if pdf_available %} · <a href="/scans/{{ scan.id }}/report.pdf">PDF</a>{% endif %}</dd>
+  </dl>
+</div>
+{% if diff.previous %}
+<div class="card">
+  <strong>Since scan {{ diff.previous }}:</strong>
+  {% if diff.new %}<span style="color:var(--high)">{{ diff.new|length }} new</span> ({{ diff.new|join(", ") }}){% endif %}
+  {% if diff.new and diff.resolved %} · {% endif %}
+  {% if diff.resolved %}<span style="color:var(--low)">{{ diff.resolved|length }} resolved</span> ({{ diff.resolved|join(", ") }}){% endif %}
+  {% if not diff.new and not diff.resolved %}<span class="muted">no change in findings</span>{% endif %}
+</div>
+{% endif %}
+
+<h2>Findings</h2>
+<div class="card">
+{% if not scan.findings %}<p>No findings. The passive checks found nothing to report.</p>{% endif %}
+{% for f in scan.findings %}
+<div class="finding" id="finding-{{ f.id }}">
+  <div class="meta"><span class="sev {{ f.severity }}">{{ f.severity }}</span><span class="status {{ f.status }}">{{ f.status|replace("_", " ") }}</span><span class="muted mono">{{ f.check }}</span></div>
+  <h3>{{ f.title }}</h3>
+  <p>{{ f.description }}</p>
+  {% if f.evidence %}<p class="mono muted">{{ f.evidence }}</p>{% endif %}
+  <p><strong>Fix:</strong> {{ f.remediation }}</p>
+  {% if f.references %}<p class="muted" style="font-size:.85rem">{% for r in f.references %}<a href="{{ r }}" rel="noopener">{{ r|replace("https://", "")|truncate(70) }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+  {% if f.note %}<p><strong>Note:</strong> {{ f.note }}</p>{% endif %}
+  <details><summary>Update status</summary>
+    <form class="inline" method="post" action="/findings/{{ f.id }}/status" style="margin-top:.5rem">
+      <select name="status">{% for s in statuses %}<option value="{{ s }}" {% if s == f.status %}selected{% endif %}>{{ s|replace("_", " ") }}</option>{% endfor %}</select>
+      <input type="text" name="note" value="{{ f.note }}" placeholder="who, what, ticket, date" style="flex:1;min-width:14rem">
+      <button type="submit">Save</button>
+    </form>
+  </details>
+</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endblock %}

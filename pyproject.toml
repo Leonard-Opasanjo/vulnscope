@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vulnscope"
+version = "0.1.0"
+description = "Passive web security scanner: headers, TLS, cookies, exposed files, CORS and TRACE, with a dashboard that tracks scan history and remediation."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [{name = "Leonard Opasanjo"}]
+keywords = ["security", "scanner", "http-headers", "tls", "owasp", "fastapi", "appsec"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "cryptography>=42",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5", "bandit>=1.7", "pip-audit>=2.7"]
+
+[project.scripts]
+vulnscope = "vulnscope.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Leonard-Opasanjo/vulnscope"
+Issues = "https://github.com/Leonard-Opasanjo/vulnscope/issues"
+
+[tool.setuptools.packages.find]
+include = ["vulnscope*"]
+
+[tool.setuptools.package-data]
+vulnscope = ["templates/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
