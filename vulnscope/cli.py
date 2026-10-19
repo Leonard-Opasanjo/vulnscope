@@ -129,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
 
         serve_target(args.host, args.port, args.secure)
         return 0
-    except (ScanError, OSError) as e:
+    except (ScanError, OSError, RuntimeError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
 

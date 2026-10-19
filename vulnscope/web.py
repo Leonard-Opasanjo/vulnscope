@@ -129,7 +129,11 @@ def report_pdf(scan_id: int, background: BackgroundTasks):
         raise HTTPException(501, "PDF export needs Chromium or Chrome installed on the server")
     fd, path = tempfile.mkstemp(suffix=".pdf")
     os.close(fd)
-    to_pdf(render_report(scan), path)
+    try:
+        to_pdf(render_report(scan), path)
+    except RuntimeError as e:
+        os.unlink(path)
+        raise HTTPException(500, str(e)) from e
     background.add_task(os.unlink, path)
     return FileResponse(path, media_type="application/pdf", filename=f"vulnscope-scan-{scan_id}.pdf")
 
