@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>VulnScope report · {{ scan.url }}</title>
+<style>
+body{margin:0;color:#1c1c1a;font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}.page{max-width:900px;margin:0 auto;padding:2rem 1.5rem}
+h1{font-size:1.6rem;margin:0 0 .25rem}h2{font-size:1.15rem;margin:1.8rem 0 .5rem;border-bottom:1px solid #ddd;padding-bottom:.25rem}h3{font-size:1rem;margin:0 0 .25rem}
+.muted{color:#6b6b66}.mono{font-family:ui-monospace,Menlo,monospace;font-size:.85rem;word-break:break-all}
+.head{display:flex;gap:1.5rem;align-items:center;margin:1rem 0}.grade{width:4rem;height:4rem;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:2rem;font-weight:700}
+.A{background:#2f6f4f}.B{background:#4f8a3a}.C{background:#9a6b00}.D{background:#b3401e}.F{background:#7a1f1f}
+table{width:100%;border-collapse:collapse;font-size:.92rem}th,td{text-align:left;padding:.4rem .5rem;border-bottom:1px solid #e2e2dd;vertical-align:top}th{color:#6b6b66}
+.sev{display:inline-block;padding:.05rem .45rem;border-radius:4px;color:#fff;font-size:.75rem;font-weight:600;text-transform:uppercase}
+.critical{background:#7a1f1f}.high{background:#b3401e}.medium{background:#9a6b00}.low{background:#2f6f4f}.info{background:#4a5a6a}
+.finding{padding:.9rem 0;border-bottom:1px solid #e2e2dd;break-inside:avoid}.finding p{margin:.25rem 0}
+.status{font-size:.75rem;border:1px solid #ccc;border-radius:4px;padding:.05rem .4rem;color:#555}
+footer{margin-top:2rem;font-size:.8rem;color:#6b6b66}
+@media print{.page{padding:0}a{color:inherit;text-decoration:none}}
+</style>
+</head>
+<body><div class="page">
+<p class="muted">VulnScope security assessment · generated {{ generated.strftime("%Y-%m-%d %H:%M UTC") }}</p>
+<h1>{{ scan.url }}</h1>
+<div class="head">
+  <div class="grade {{ scan.grade }}">{{ scan.grade }}</div>
+  <div>
+    <div><strong>Score {{ scan.score }}/100</strong> · {{ scan.findings|length }} findings
+      {% for s in severities %}{% if scan.counts[s] %} · {{ scan.counts[s] }} {{ s }}{% endif %}{% endfor %}</div>
+    <div class="muted">Scanned {{ (scan.finished_at or "")|replace("T", " ") }} · {{ scan.requests }} requests · final URL <span class="mono">{{ scan.final_url }}</span>{% if scan.server %} · server <span class="mono">{{ scan.server }}</span>{% endif %}</div>
+    {% if scan.tls and scan.tls.protocol %}<div class="muted">TLS {{ scan.tls.protocol }} {{ scan.tls.cipher }} · {{ scan.tls.key_type }} {{ scan.tls.key_bits }}-bit · issuer <span class="mono">{{ scan.tls.issuer|truncate(60) }}</span> · expires {{ (scan.tls.not_after or "")[:10] }} · {{ "trusted" if scan.tls.trusted else "not trusted" }}</div>{% endif %}
+  </div>
+</div>
+
+<h2>Summary</h2>
+<table>
+<tr><th>Severity</th><th>Rule</th><th>Finding</th><th>Status</th></tr>
+{% for f in scan.findings %}
+<tr><td><span class="sev {{ f.severity }}">{{ f.severity }}</span></td><td class="mono">{{ f.check }}</td><td>{{ f.title }}</td><td><span class="status">{{ f.status|replace("_", " ") }}</span></td></tr>
+{% endfor %}
+{% if not scan.findings %}<tr><td colspan="4">No findings.</td></tr>{% endif %}
+</table>
+
+<h2>Findings and remediation</h2>
+{% for f in scan.findings %}
+<div class="finding">
+  <h3><span class="sev {{ f.severity }}">{{ f.severity }}</span> {{ f.title }}</h3>
+  <p>{{ f.description }}</p>
+  {% if f.evidence %}<p class="mono muted">Evidence: {{ f.evidence }}</p>{% endif %}
+  <p><strong>Remediation:</strong> {{ f.remediation }}</p>
+  {% if f.note %}<p><strong>Status:</strong> {{ f.status|replace("_", " ") }} — {{ f.note }}</p>{% endif %}
+  {% if f.references %}<p class="muted" style="font-size:.85rem">References: {% for r in f.references %}<a href="{{ r }}">{{ r }}</a>{% if not loop.last %}; {% endif %}{% endfor %}</p>{% endif %}
+</div>
+{% endfor %}
+
+<h2>Method and limits</h2>
+<p>VulnScope performs passive checks only: it fetches the home page and a short list of well-known paths with GET,
+sends one OPTIONS and one TRACE request, one request with a probe Origin header, and inspects the TLS handshake
+and certificate. It does not log in, submit forms, fuzz parameters or exploit anything. The score deducts
+{{ 40 }} points per critical, 20 per high, 10 per medium and 4 per low finding from 100; grades are A (90+),
+B (75+), C (60+), D (40+) and F. A good grade means the common configuration mistakes are absent; it is not a
+penetration test and says nothing about application logic, authentication or injection flaws.</p>
+<footer>Produced by VulnScope {{ version }} ({{ repo_url }}) for an authorised assessment of {{ scan.url }}.</footer>
+</div></body></html>

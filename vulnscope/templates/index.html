@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block body %}
+<h1>Scan a site you are authorised to test</h1>
+<div class="card">
+  <form class="inline" method="post" action="/scans">
+    <input type="url" name="url" placeholder="https://example.com" required autofocus>
+    <button type="submit">Scan</button>
+    <label class="check"><input type="checkbox" name="authorized" value="yes" required> I own this site or have written permission to test it</label>
+  </form>
+  <p class="muted" style="margin:.6rem 0 0">Passive checks only: about twenty GET, OPTIONS and TRACE requests, one TLS handshake and two legacy-protocol probes. Nothing is exploited or modified.</p>
+</div>
+<h2>Targets</h2>
+<div class="card">
+{% if not targets %}<p class="muted">No scans yet. Try the bundled practice target: run <code>vulnscope target</code> and scan <code>http://127.0.0.1:8099</code>.</p>
+{% else %}
+<table>
+<tr><th>Target</th><th>Last scan</th><th>Grade</th><th class="hide-sm">Scans</th><th></th></tr>
+{% for t in targets %}
+<tr>
+  <td><a href="/targets/{{ t.id }}">{{ t.url }}</a></td>
+  <td>{% if t.last %}<a href="/scans/{{ t.last.id }}">{{ (t.last.finished_at or t.last.started_at)|replace("T", " ") }}</a>
+      {% if t.last.status != "done" %}<span class="pill">{{ t.last.status }}</span>{% endif %}{% else %}<span class="muted">none</span>{% endif %}</td>
+  <td>{% if t.last and t.last.grade %}<span class="grade sm {{ t.last.grade }}">{{ t.last.grade }}</span>{% endif %}</td>
+  <td class="hide-sm">{{ t.scans }}</td>
+  <td><form method="post" action="/scans" class="inline"><input type="hidden" name="url" value="{{ t.url }}"><input type="hidden" name="authorized" value="yes"><button class="quiet" type="submit">Rescan</button></form></td>
+</tr>
+{% endfor %}
+</table>
+{% endif %}
+</div>
+{% endblock %}

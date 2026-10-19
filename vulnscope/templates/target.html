@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}{{ target.url }} · VulnScope{% endblock %}
+{% block body %}
+<p class="muted"><a href="/">Targets</a> › {{ target.url }}</p>
+<h1>{{ target.url }}</h1>
+<div class="card">
+<form method="post" action="/scans" class="inline"><input type="hidden" name="url" value="{{ target.url }}"><input type="hidden" name="authorized" value="yes"><button type="submit">Scan again</button></form>
+</div>
+<h2>History</h2>
+<div class="card">
+<table>
+<tr><th>Scan</th><th>When</th><th>Status</th><th>Grade</th><th>Score</th><th class="hide-sm">Findings</th></tr>
+{% for s in scans %}
+<tr>
+  <td><a href="/scans/{{ s.id }}">#{{ s.id }}</a></td>
+  <td>{{ (s.finished_at or s.started_at)|replace("T", " ") }}</td>
+  <td>{{ s.status }}{% if s.error %} <span class="muted mono">{{ s.error|truncate(60) }}</span>{% endif %}</td>
+  <td>{% if s.grade %}<span class="grade sm {{ s.grade }}">{{ s.grade }}</span>{% endif %}</td>
+  <td>{{ s.score if s.score is not none else "" }}</td>
+  <td class="hide-sm counts">{% for sev in severities %}{% if s.counts.get(sev) %}<span><span class="sev {{ sev }}">{{ sev }}</span> {{ s.counts[sev] }}</span>{% endif %}{% endfor %}</td>
+</tr>
+{% endfor %}
+</table>
+</div>
+{% endblock %}

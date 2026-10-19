@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}VulnScope{% endblock %}</title>
+{% block head %}{% endblock %}
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--ink:#1c1c1a;--muted:#6b6b66;--line:#e2e2dd;--accent:#1f5f8b;
+--critical:#7a1f1f;--high:#b3401e;--medium:#9a6b00;--low:#2f6f4f;--info:#4a5a6a}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+a{color:var(--accent)}header{background:var(--card);border-bottom:1px solid var(--line)}
+header .wrap{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.wrap{max-width:1100px;margin:0 auto;padding:1rem 1.25rem}.brand{font-weight:700;text-decoration:none;color:var(--ink);letter-spacing:.02em}
+.brand span{color:var(--muted);font-weight:400;margin-left:.5rem;font-size:.85rem}
+h1{font-size:1.5rem;margin:1.25rem 0 .5rem}h2{font-size:1.1rem;margin:1.5rem 0 .5rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:1rem 1.25rem;margin:1rem 0}
+table{width:100%;border-collapse:collapse;font-size:.92rem}th,td{text-align:left;padding:.5rem .6rem;border-top:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;border-top:0}
+.muted{color:var(--muted)}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem;word-break:break-all}
+.grade{display:inline-flex;align-items:center;justify-content:center;width:3.2rem;height:3.2rem;border-radius:8px;font-weight:700;font-size:1.6rem;color:#fff;background:var(--muted)}
+.grade.A{background:#2f6f4f}.grade.B{background:#4f8a3a}.grade.C{background:#9a6b00}.grade.D{background:#b3401e}.grade.F{background:#7a1f1f}
+.grade.sm{width:2.2rem;height:2.2rem;font-size:1.1rem;border-radius:6px}
+.sev{display:inline-block;padding:.1rem .5rem;border-radius:4px;color:#fff;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.sev.critical{background:var(--critical)}.sev.high{background:var(--high)}.sev.medium{background:var(--medium)}.sev.low{background:var(--low)}.sev.info{background:var(--info)}
+.status{display:inline-block;padding:.1rem .5rem;border-radius:4px;border:1px solid var(--line);font-size:.78rem;color:var(--muted)}
+.status.fixed{color:var(--low);border-color:var(--low)}.status.accepted{color:var(--info);border-color:var(--info)}.status.in_progress{color:var(--medium);border-color:var(--medium)}
+form.inline{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}input[type=text],input[type=url],select,textarea{font:inherit;padding:.45rem .6rem;border:1px solid var(--line);border-radius:6px;background:#fff}
+input[type=url]{flex:1;min-width:16rem}button{font:inherit;padding:.45rem .9rem;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;cursor:pointer}
+button.quiet{background:#fff;color:var(--accent)}label.check{display:flex;gap:.4rem;align-items:center;font-size:.9rem;color:var(--muted)}
+.finding{border-top:1px solid var(--line);padding:1rem 0}.finding:first-of-type{border-top:0}.finding h3{margin:0 0 .3rem;font-size:1rem}
+.finding .meta{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.4rem}
+.finding p{margin:.3rem 0}.finding details{margin-top:.4rem}.finding summary{cursor:pointer;color:var(--accent);font-size:.9rem}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:.2rem 1rem;font-size:.92rem}.kv dt{color:var(--muted)}.kv dd{margin:0}
+.counts span{margin-right:.8rem}.pill{background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:.1rem .6rem;font-size:.8rem}
+.notice{background:#fff8e6;border:1px solid #f0d58c;border-radius:8px;padding:.8rem 1rem;margin:1rem 0;font-size:.92rem}
+@media (max-width:640px){.wrap{padding:.8rem}table{font-size:.85rem}.hide-sm{display:none}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><a class="brand" href="/">VulnScope<span>v{{ version }}</span></a>
+<nav><a href="/">Targets</a> · <a href="/api/docs">API</a> · <a href="{{ repo_url }}">Source</a></nav></div></header>
+<main class="wrap">{% block body %}{% endblock %}</main>
+</body>
+</html>
