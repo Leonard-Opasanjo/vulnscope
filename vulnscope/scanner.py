@@ -31,6 +31,8 @@ from .tls import TLSInfo, check_tls, inspect
 
 PROBE_ORIGIN = "https://vulnscope-probe.invalid"
 MAX_HOPS = 5
+MAX_BODY = 64 * 1024  # bytes kept from each response; the checks look at the first 50,000 characters at most
+SCAN_DEADLINE = 120.0  # seconds for a whole scan: a server that drips bytes never trips the per-read timeout
 _TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.I | re.S)
 
 
@@ -82,9 +84,9 @@ def normalise(url: str) -> str:
 
 
 def same_site(a: str, b: str) -> bool:
-    """True when host b is a, a subdomain of a, or a parent of a. Redirects elsewhere are not followed."""
-    a, b = a.lower(), b.lower()
-    return a == b or b.endswith("." + a) or a.endswith("." + b)
+    """True when host b is a or its www. twin. Redirects anywhere else, subdomains and parents included, are not
+    followed: on shared hosting a parent domain or another subdomain belongs to someone else."""
+    return a.lower().removeprefix("www.") == b.lower().removeprefix("www.")
 
 
 def _tls_dict(info: TLSInfo) -> dict:
@@ -113,28 +115,48 @@ class Scanner:
             return None
         result.requests += 1
         try:
-            return await client.request(method, url, **kw)
+            return await self._send(client, method, url, **kw)
         except httpx.HTTPError:
             return None
 
+    @staticmethod
+    async def _send(client: httpx.AsyncClient, method: str, url: str, **kw) -> httpx.Response:
+        """Send one request and keep at most MAX_BODY bytes of the body, so a huge response cannot fill memory."""
+        async with client.stream(method, url, **kw) as r:
+            body = b""
+            async for chunk in r.aiter_bytes():
+                body += chunk
+                if len(body) >= MAX_BODY:
+                    break
+        r.headers.pop("content-encoding", None)  # the body below is already decoded
+        return httpx.Response(r.status_code, headers=r.headers, content=body[:MAX_BODY], request=r.request)
+
     async def _follow(self, client: httpx.AsyncClient, url: str, result: ScanResult):
-        """GET with manual redirects that stay on the target's site. Returns (response, set-cookies, url)."""
+        """GET with manual redirects that stay on the named host. Returns (response, set-cookies, url)."""
         cookies: list[str] = []
-        for _ in range(MAX_HOPS + 1):
+        start = urlsplit(url).hostname or ""
+        for hop in range(MAX_HOPS + 1):
             result.requests += 1
-            r = await client.get(url)
+            r = await self._send(client, "GET", url)
             cookies += r.headers.get_list("set-cookie")
             location = r.headers.get("location")
-            if r.is_redirect and location:
+            if r.is_redirect and location and hop < MAX_HOPS:
                 nxt = urljoin(url, location)
-                if urlsplit(nxt).scheme in ("http", "https") and same_site(urlsplit(url).hostname or "",
-                                                                             urlsplit(nxt).hostname or ""):
+                # Compared with the host the user named, not the previous hop, so a chain cannot drift away.
+                if urlsplit(nxt).scheme in ("http", "https") and same_site(start, urlsplit(nxt).hostname or ""):
                     url = nxt
                     continue
             return r, cookies, url
         return r, cookies, url
 
     async def scan(self, url: str) -> ScanResult:
+        try:
+            async with asyncio.timeout(SCAN_DEADLINE):
+                return await self._scan(url)
+        except TimeoutError as e:
+            raise ScanError(f"the scan did not finish within {SCAN_DEADLINE:g} seconds") from e
+
+    async def _scan(self, url: str) -> ScanResult:
         url = normalise(url)
         result = ScanResult(url=url, started_at=datetime.now(UTC))
         client = self._client(self.verify)
@@ -163,7 +185,8 @@ class Scanner:
             findings: list[Finding] = []
             http_probe = None
             if scheme == "https" and port == 443:
-                r = await self._request(client, "GET", f"http://{host}/", result)
+                plain = f"http://[{host}]/" if ":" in host else f"http://{host}/"  # IPv6 needs brackets
+                r = await self._request(client, "GET", plain, result)
                 if r is not None:
                     http_probe = (r.status_code, r.headers.get("location"))
             findings += check_transport(scheme, host, http_probe)
@@ -200,11 +223,15 @@ class Scanner:
             findings += check_methods(allow, trace_status, trace_body)
 
             if scheme == "https":
-                info = await asyncio.to_thread(inspect, host, port, self.verify, self.timeout, self.probe_legacy)
+                # --insecure only lets the HTTP checks go on; trust is still judged against the system store.
+                verify = True if self.verify is False else self.verify
+                info = await asyncio.to_thread(inspect, host, port, verify, self.timeout, self.probe_legacy)
                 result.tls = _tls_dict(info)
                 findings += check_tls(info)
 
-            result.findings = sorted(findings, key=lambda f: (SEVERITIES.index(f.severity), f.check))
+            # One finding per key: a cookie set on two redirect hops is one problem, not two deductions.
+            unique = {f.key: f for f in findings}.values()
+            result.findings = sorted(unique, key=lambda f: (SEVERITIES.index(f.severity), f.check))
             result.finished_at = datetime.now(UTC)
             return result
         finally:

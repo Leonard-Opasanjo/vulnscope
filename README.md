@@ -79,7 +79,8 @@ client or a manager.
 
 VulnScope only ever does the following to a target:
 
-- Fetches the home page with GET, following redirects that stay on the same site (up to five hops).
+- Fetches the home page with GET, following redirects that stay on the host you named or its `www.` twin (up to
+  five hops).
 - Fetches a short fixed list of well-known paths with GET: nine directory names that commonly have listings
   enabled and five files that should never be public (`/.git/HEAD`, `/.env`, `/phpinfo.php`, `/server-status`,
   `/.DS_Store`). A file counts as exposed only when the body matches the expected content, so a soft 404 is not
@@ -145,7 +146,7 @@ The practice target scores an F, with every check firing:
 ```
 $ vulnscope target &                       # serves http://127.0.0.1:8099
 $ vulnscope scan http://127.0.0.1:8099 --authorized
-http://127.0.0.1:8099 -> grade F (score 0/100), 18 findings, 18 requests
+http://127.0.0.1:8099/ -> grade F (score 0/100), 18 findings, 18 requests
   critical exposure.file          Git repository exposed at /.git/HEAD
   critical exposure.file          Environment file exposed at /.env
   high     cors.reflect           CORS reflects any origin with credentials
@@ -215,7 +216,9 @@ docker run --rm vulnscope vulnscope scan https://example.com --authorized --no-s
 ```
 
 The image runs as an unprivileged user and keeps the database in the `/data` volume. PDF export needs Chromium,
-which the image does not include; use the host for PDFs or install it in a derived image.
+which the image does not include; use the host for PDFs or install it in a derived image. The dashboard answers
+only to `127.0.0.1` and `localhost`; to reach it under another name, list the names in `VULNSCOPE_ALLOWED_HOSTS`
+(for example `-e VULNSCOPE_ALLOWED_HOSTS=scans.internal,127.0.0.1`).
 
 ## Usage
 
@@ -229,8 +232,9 @@ vulnscope serve --port 9000 --db /srv/vulnscope/scans.db
 Enter a URL, tick the authorisation box, and the scan runs in the background while the page refreshes. The scan
 page shows the grade, the counts, the TLS summary, what changed since the previous scan of the same target, and
 every finding with its remediation and a status form. The target page lists all scans. Every scan has HTML, JSON
-and (with Chromium installed) PDF exports, and an API at `/api/scans/{id}` and `/api/targets`, documented at
-`/api/docs`.
+and (with Chromium installed) PDF exports, and an API at `/api/scans/{id}` and `/api/targets`, described by the
+OpenAPI schema at `/api/openapi.json`. There is no Swagger page: it would load scripts from a CDN into the
+dashboard.
 
 ### Command line
 
@@ -248,7 +252,7 @@ vulnscope target [--host H] [--port P] [--secure]
 | `--db PATH` | `vulnscope.db` or `$VULNSCOPE_DB` | database that keeps the history |
 | `--no-save` | | scan without recording anything |
 | `--ca-bundle FILE` | system store | trust this CA bundle (internal CAs, test certificates) |
-| `--insecure` | | skip certificate verification entirely |
+| `--insecure` | | skip certificate verification for the HTTP requests; the TLS check still reports an untrusted certificate |
 | `--timeout SECONDS` | 10 | per-request timeout |
 | `--no-legacy-probe` | | skip the TLS 1.0 and 1.1 handshakes |
 
@@ -275,8 +279,10 @@ name or path), which is what makes history useful:
 - The scan page lists findings that are **new** since the previous completed scan and those that were
   **resolved**.
 - A finding's status and note are set once and **carried forward**: `accepted` and `in progress` stay on the
-  finding in later scans as long as it keeps appearing. A finding marked `fixed` that appears again comes back
-  as `open` with a note saying it reappeared, so regressions are visible.
+  finding in later scans as long as it keeps appearing. The latest decision on any earlier scan counts, so a
+  status set on an older scan is not lost. A finding marked `fixed` that appears again, in the next scan or any
+  later one, comes back as `open` with a note saying it reappeared (followed by the earlier note), so regressions
+  are visible.
 - The target page shows the grade, score and counts of every scan, which is the trend line for a site.
 
 Statuses are `open`, `in_progress`, `fixed` and `accepted`. "Accepted" is for a risk the owner has decided to
@@ -305,8 +311,10 @@ Design decisions:
   around them.
 - **Signatures, not status codes.** A 200 for `/.env` means nothing on a site that returns 200 for everything.
   Exposure findings require the body to match what the file would contain.
-- **Redirects stay on the site.** The scanner follows up to five redirects only to the same host, a subdomain or
-  a parent domain. A redirect elsewhere ends the chain, so a scan can never spill onto a third party.
+- **Redirects stay on the host.** The scanner follows up to five redirects only to the host you named or its
+  `www.` twin, checking every hop against that host rather than the previous hop. A redirect anywhere else,
+  including a subdomain or a parent domain (on shared hosting those belong to someone else), ends the chain, so
+  a scan cannot spill onto a third party.
 - **Untrusted certificates do not stop the scan.** The TLS check reports the problem at high severity and the
   remaining checks run over the unverified connection; nothing sensitive is sent.
 - **The dashboard sends the headers it checks for.** Scanning VulnScope with VulnScope should give an A, and
@@ -320,7 +328,7 @@ Design decisions:
 
 ```bash
 ruff check .
-pytest                                    # 28 tests
+pytest                                    # 46 tests
 bandit -q -c pyproject.toml -r vulnscope
 pip-audit
 ```
@@ -341,11 +349,18 @@ results to the Security tab.
 
 - **The dashboard has no authentication.** It binds to `127.0.0.1` by default. Anyone who can reach it can
   start scans of arbitrary URLs from your machine, which makes an exposed instance a request proxy. Put it behind
-  a reverse proxy with login if a team needs it, and do not expose it to the internet.
+  a reverse proxy with login if a team needs it (pass the `Host` header through and list the name in
+  `VULNSCOPE_ALLOWED_HOSTS`), and do not expose it to the internet.
+- **Web pages you visit cannot drive it.** It answers only to the host names `127.0.0.1` and `localhost`, plus
+  the address given to `serve --host` or the names in `VULNSCOPE_ALLOWED_HOSTS`, which stops DNS rebinding. It
+  refuses a form post whose `Origin` or `Referer` is another site, which stops cross-site request forgery. PDF
+  export, a GET any page could trigger, runs one browser at a time.
 - **It fetches URLs you give it, including private ones.** That is required for scanning local and internal
-  targets and is why the previous point matters.
+  targets and is why the previous points matter.
 - **Scanned content is untrusted.** Response bodies are only pattern-matched, never rendered or executed; the
-  dashboard escapes everything it displays and sends a Content-Security-Policy; the report escapes all values.
+  scanner keeps at most 64 KB of each response and stops a scan after 120 seconds, so a hostile target cannot
+  exhaust memory or hold a scan open. The dashboard escapes everything it displays and sends a
+  Content-Security-Policy; the report escapes all values.
 - **No outbound calls beyond the target.** No telemetry, no reputation lookups.
 - **The practice target is fake.** Its "secrets" are placeholders; still, run it on localhost only.
 - Report a problem with VulnScope itself through [SECURITY.md](SECURITY.md).
@@ -356,6 +371,8 @@ results to the Security tab.
   testing. It will not find injection, access-control or business-logic flaws.
 - Cookie checks see only the cookies set on the home page and its redirects. Login cookies set after
   authentication are not observed.
+- Cookie findings are counted per cookie, so a site that sets several unflagged cookies (analytics, preferences)
+  can grade lower than one with a single exposed file. Read the findings, not only the grade.
 - The legacy TLS probe depends on the local OpenSSL being willing to offer TLS 1.0 and 1.1 at all. When it refuses,
   the check is skipped rather than reported, and the JSON shows `legacy_probed: false`.
 - Certificate chain problems are reported through the system trust store of the machine running the scan, which

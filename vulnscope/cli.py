@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import __version__
 from .report import render_report, to_json, to_pdf
-from .scanner import ScanError, Scanner
+from .scanner import ScanError, Scanner, normalise
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -30,7 +30,8 @@ def _parser() -> argparse.ArgumentParser:
                    help="SQLite database that keeps scan history (default %(default)s)")
     s.add_argument("--no-save", action="store_true", help="do not record this scan in the database")
     s.add_argument("--ca-bundle", metavar="FILE", help="trust this CA bundle instead of the system store")
-    s.add_argument("--insecure", action="store_true", help="skip certificate verification entirely")
+    s.add_argument("--insecure", action="store_true",
+                   help="skip certificate verification for the HTTP requests (the TLS check still reports trust)")
     s.add_argument("--timeout", type=float, default=10.0, metavar="SECONDS")
     s.add_argument("--no-legacy-probe", action="store_true", help="do not test whether TLS 1.0/1.1 are accepted")
 
@@ -79,21 +80,22 @@ def scan_cmd(args: argparse.Namespace) -> int:
         print("error: pass --authorized to confirm you own the target or have written permission to test it",
               file=sys.stderr)
         return 2
+    url = normalise(args.url)  # the dashboard's key for the target, so both share one history
     verify: bool | str = False if args.insecure else (args.ca_bundle or True)
     scanner = Scanner(verify=verify, timeout=args.timeout, probe_legacy=not args.no_legacy_probe)
     if args.no_save:
-        result = asyncio.run(scanner.scan(args.url))
+        result = asyncio.run(scanner.scan(url))
         scan = result.to_dict()
     else:
         from .db import Store
 
         db = Store(args.db)
-        scan_id = db.create_scan(args.url if "://" in args.url else "https://" + args.url)
+        scan_id = db.create_scan(url)
         db.start_scan(scan_id)
         try:
-            db.finish_scan(scan_id, asyncio.run(scanner.scan(args.url)))
-        except ScanError as e:
-            db.fail_scan(scan_id, str(e))
+            db.finish_scan(scan_id, asyncio.run(scanner.scan(url)))
+        except BaseException as e:  # failed, crashed or interrupted: never leave the scan marked running
+            db.fail_scan(scan_id, str(e) or type(e).__name__)
             raise
         scan = db.get_scan(scan_id)
         print(f"saved as scan {scan_id} in {args.db}")

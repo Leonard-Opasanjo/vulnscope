@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-import subprocess  # nosec B404: used only to run a local Chromium with a fixed argument list
+import subprocess  # nosec B404
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -49,11 +49,12 @@ def to_pdf(html: str, pdf_path: str | Path) -> bool:
         src = Path(tmp) / "report.html"
         src.write_text(html, encoding="utf-8")
         for browser in browsers:
-            try:
+            try:  # the only subprocess use: a local Chromium with a fixed argument list
                 subprocess.run([browser, "--headless=new", "--disable-gpu", "--no-pdf-header-footer",  # nosec B603
                                 f"--print-to-pdf={Path(pdf_path).resolve()}", src.as_uri()],
                                check=True, capture_output=True, timeout=120)
                 return True
-            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                errors.append(f"{browser}: {getattr(e, 'stderr', b'')[-300:]!r}")
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as e:
+                # stderr is None when the browser timed out before writing anything; OSError has none at all.
+                errors.append(f"{browser}: {(getattr(e, 'stderr', None) or str(e).encode())[-300:]!r}")
     raise RuntimeError("PDF export failed: " + "; ".join(errors))

@@ -4,18 +4,25 @@ from __future__ import annotations
 
 import os
 import tempfile
+import threading
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from fastapi import BackgroundTasks, FastAPI, Form, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from .db import STATUSES, Store
 from .report import env, find_browser, render_report, to_json, to_pdf
 from .scanner import ScanError, Scanner, normalise
 
-app = FastAPI(title="VulnScope", docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json")
+# Swagger UI is off: it loads scripts from a CDN, which the dashboard's CSP blocks. The schema stays available.
+app = FastAPI(title="VulnScope", docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
 templates = Jinja2Templates(env=env)
+# Host names the dashboard answers to, against DNS rebinding; `serve --host` adds its own address.
+ALLOWED_HOSTS = os.environ.get("VULNSCOPE_ALLOWED_HOSTS", "127.0.0.1,localhost").replace(" ", "").split(",")
+PDF_SLOT = threading.Semaphore(1)  # one headless browser at a time: the PDF route is a GET any web page can trigger
 SECURITY_HEADERS = {
     "content-security-policy": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
                                "form-action 'self'; frame-ancestors 'none'; base-uri 'self'",
@@ -30,7 +37,19 @@ SECURITY_HEADERS = {
 def store() -> Store:
     if not hasattr(app.state, "store"):
         app.state.store = Store(os.environ.get("VULNSCOPE_DB", "vulnscope.db"))
+        app.state.store.fail_interrupted()  # scans an earlier server process left queued or running
     return app.state.store
+
+
+@app.middleware("http")
+async def same_origin_posts(request: Request, call_next):
+    """Refuse cross-site form posts (CSRF). Browsers send Origin on every cross-site POST; curl and scripts send
+    neither Origin nor Referer and are let through."""
+    if request.method == "POST":
+        source = request.headers.get("origin") or request.headers.get("referer")
+        if source is not None and urlsplit(source).netloc != request.headers.get("host"):
+            return PlainTextResponse("cross-site request refused", status_code=403)
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -39,6 +58,10 @@ async def security_headers(request: Request, call_next):
     for k, v in SECURITY_HEADERS.items():
         response.headers.setdefault(k, v)
     return response
+
+
+# Added last so it runs first. It copies ALLOWED_HOSTS when the server starts, after serve() has extended it.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=ALLOWED_HOSTS)
 
 
 async def run_scan(scan_id: int, url: str, verify: bool | str) -> None:
@@ -127,6 +150,8 @@ def report_pdf(scan_id: int, background: BackgroundTasks):
     scan = _scan_or_404(scan_id)
     if find_browser() is None:
         raise HTTPException(501, "PDF export needs Chromium or Chrome installed on the server")
+    if not PDF_SLOT.acquire(blocking=False):
+        raise HTTPException(429, "another PDF is being generated; try again in a moment")
     fd, path = tempfile.mkstemp(suffix=".pdf")
     os.close(fd)
     try:
@@ -134,6 +159,8 @@ def report_pdf(scan_id: int, background: BackgroundTasks):
     except RuntimeError as e:
         os.unlink(path)
         raise HTTPException(500, str(e)) from e
+    finally:
+        PDF_SLOT.release()
     background.add_task(os.unlink, path)
     return FileResponse(path, media_type="application/pdf", filename=f"vulnscope-scan-{scan_id}.pdf")
 
@@ -158,4 +185,6 @@ def serve(host: str = "127.0.0.1", port: int = 8000, db: str | None = None) -> N
 
     if db:
         os.environ["VULNSCOPE_DB"] = str(Path(db))
+    if host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(host)
     uvicorn.run(app, host=host, port=port, log_level="info")

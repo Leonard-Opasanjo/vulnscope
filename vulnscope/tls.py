@@ -121,7 +121,8 @@ def check_tls(info: TLSInfo, now: datetime | None = None) -> list[Finding]:
         return [Finding("tls.unreachable", "info", "TLS handshake failed",
                         "The scanner could not complete a TLS connection, so certificate checks were skipped.",
                         evidence=info.error[:300])]
-    if not info.trusted:
+    # An expired or not-yet-valid certificate also fails verification; that date problem is reported once, below.
+    if not info.trusted and not any(s in info.error for s in ("has expired", "is not yet valid")):
         out.append(Finding("tls.untrusted", "high", "Certificate is not trusted",
                            "Browsers will show a security warning. The certificate is self-signed, issued by an "
                            "unknown authority, incomplete (missing intermediate) or for a different host name.",

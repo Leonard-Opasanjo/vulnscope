@@ -61,3 +61,30 @@ def test_status_carry_over_and_diff(tmp_path):
     assert diff["previous"] == a and diff["new"] == ["framing"] and diff["resolved"] == ["nosniff"]
     assert s.diff(a) == {"new": [], "resolved": [], "previous": None}
     assert s.get_scan(b)["open"] == 2
+
+
+def test_status_carries_from_any_earlier_scan(tmp_path):
+    s = Store(tmp_path / "x.db")
+    url = "https://t.example/"
+
+    def csp():
+        return Finding("headers.csp", "medium", "CSP missing", "d")
+
+    a = finish(s, url, csp())
+    s.set_finding_status(s.get_scan(a)["findings"][0]["id"], "fixed", "JIRA-1")
+    finish(s, url)                      # really fixed: the next scan is clean
+    c = finish(s, url, csp())           # and later it regresses
+    f = s.get_scan(c)["findings"][0]
+    assert f["status"] == "open" and "Reappeared" in f["note"] and "JIRA-1" in f["note"]
+    finish(s, url, csp())               # a newer scan exists...
+    s.set_finding_status(f["id"], "accepted", "risk owner agreed")  # ...when the decision is made on scan c
+    e = finish(s, url, csp())
+    assert s.get_scan(e)["findings"][0]["status"] == "accepted"
+
+
+def test_interrupted_scans_are_failed(tmp_path):
+    s = Store(tmp_path / "x.db")
+    stuck = s.create_scan("https://t.example/")
+    s.start_scan(stuck)
+    s.fail_interrupted()
+    assert s.get_scan(stuck)["status"] == "failed" and s.active_scan("https://t.example/") is None

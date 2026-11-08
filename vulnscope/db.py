@@ -32,6 +32,11 @@ def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _stamp() -> str:
+    """Finding update time to the microsecond: it orders status decisions made within the same second."""
+    return datetime.now(UTC).isoformat()
+
+
 class Store:
     def __init__(self, path: str | Path):
         self.path = str(path)
@@ -72,15 +77,21 @@ class Store:
             c.execute("UPDATE scans SET status = 'failed', finished_at = ?, error = ? WHERE id = ?",
                       (_now(), error[:1000], scan_id))
 
+    def fail_interrupted(self) -> None:
+        """Mark scans left queued or running by a process that stopped as failed, so they stop blocking rescans."""
+        with self._conn() as c:
+            c.execute("UPDATE scans SET status = 'failed', finished_at = ?, error = 'interrupted before it finished' "
+                      "WHERE status IN ('queued', 'running')", (_now(),))
+
     def finish_scan(self, scan_id: int, result: ScanResult) -> None:
         with self._conn() as c:
             tid = c.execute("SELECT target_id FROM scans WHERE id = ?", (scan_id,)).fetchone()["target_id"]
-            prev = c.execute("SELECT id FROM scans WHERE target_id = ? AND status = 'done' AND id < ? "
-                             "ORDER BY id DESC LIMIT 1", (tid, scan_id)).fetchone()
-            carried: dict[str, sqlite3.Row] = {}
-            if prev:
-                carried = {r["key"]: r for r in c.execute("SELECT key, status, note FROM findings WHERE scan_id = ?",
-                                                          (prev["id"],))}
+            # The latest decision on any earlier scan of the target wins (later rows overwrite earlier ones), so a
+            # status set on an older scan counts and a fix that regresses after a clean scan is still flagged.
+            carried = {r["key"]: r for r in c.execute(
+                "SELECT f.key, f.status, f.note FROM findings f JOIN scans s ON s.id = f.scan_id "
+                "WHERE s.target_id = ? AND s.status = 'done' AND s.id < ? ORDER BY f.updated_at, f.id",
+                (tid, scan_id))}
             c.execute("UPDATE scans SET status = 'done', finished_at = ?, final_url = ?, http_status = ?, title = ?, "
                       "server = ?, requests = ?, score = ?, grade = ?, tls_json = ? WHERE id = ?",
                       (_now(), result.final_url, result.http_status, result.title, result.server, result.requests,
@@ -92,11 +103,12 @@ class Store:
                     if old["status"] in ("accepted", "in_progress"):
                         status, note = old["status"], old["note"]
                     elif old["status"] == "fixed":
-                        note = "Reappeared after being marked fixed on an earlier scan."
+                        note = "Reappeared after being marked fixed on an earlier scan." + (
+                            f" Earlier note: {old['note']}" if old["note"] else "")
                 c.execute("INSERT INTO findings (scan_id, key, check_id, severity, title, description, evidence, "
                           "remediation, references_json, status, note, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                           (scan_id, f.key, f.check, f.severity, f.title, f.description, f.evidence, f.remediation,
-                           json.dumps(f.references), status, note, _now()))
+                           json.dumps(f.references), status, note, _stamp()))
 
     # reads -------------------------------------------------------------------------------------
     def get_scan(self, scan_id: int) -> dict | None:
@@ -132,7 +144,7 @@ class Store:
             raise ValueError(f"status must be one of {', '.join(STATUSES)}")
         with self._conn() as c:
             c.execute("UPDATE findings SET status = ?, note = ?, updated_at = ? WHERE id = ?",
-                      (status, note.strip()[:2000], _now(), finding_id))
+                      (status, note.strip()[:2000], _stamp(), finding_id))
             return c.execute("SELECT scan_id FROM findings WHERE id = ?", (finding_id,)).fetchone()["scan_id"]
 
     def list_targets(self) -> list[dict]:

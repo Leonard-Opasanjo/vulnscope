@@ -80,7 +80,7 @@ def client(tmp_path, monkeypatch):
     from vulnscope.db import Store
 
     web.app.state.store = Store(tmp_path / "test.db")
-    with TestClient(web.app) as c:
+    with TestClient(web.app, base_url="http://127.0.0.1") as c:  # a host name the dashboard answers to
         yield c
     del web.app.state.store
 

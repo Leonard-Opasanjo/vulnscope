@@ -28,6 +28,13 @@ def test_expiry_windows():
     assert checks(check_tls(info(not_before=NOW + timedelta(days=1)), NOW))["tls.notyet"] == "critical"
 
 
+def test_expired_certificate_is_not_also_reported_untrusted():
+    expired = info(trusted=False, error="certificate has expired", not_after=NOW - timedelta(days=1))
+    assert checks(check_tls(expired, NOW)) == {"tls.expired": "critical"}  # one deduction, not two
+    selfsigned = info(trusted=False, error="self-signed certificate", not_after=NOW - timedelta(days=1))
+    assert checks(check_tls(selfsigned, NOW)).keys() == {"tls.untrusted", "tls.expired"}  # two separate problems
+
+
 def test_trust_protocol_key_and_signature():
     assert checks(check_tls(info(trusted=False, error="self-signed certificate"), NOW))["tls.untrusted"] == "high"
     assert checks(check_tls(info(protocol="TLSv1.1"), NOW))["tls.protocol"] == "high"
